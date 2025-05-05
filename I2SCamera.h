@@ -3,6 +3,7 @@
 //by Ivan Grokhotkov
 //released under Apache License 2.0
 
+#include "Arduino.h"
 #pragma once
 
 #include "soc/soc.h"
@@ -93,7 +94,7 @@ class I2SCamera
   static void deinitVSync();
   
   static void IRAM_ATTR i2sInterrupt(void* arg);
-  static void IRAM_ATTR vSyncInterrupt(void* arg);
+  static void IRAM_ATTR vSyncInterrupt();
   
   static bool i2sInit(const int VSYNC, const int HREF, const int PCLK, const int D0, const int D1, const int D2, const int D3, const int D4, const int D5, const int D6, const int D7);
 

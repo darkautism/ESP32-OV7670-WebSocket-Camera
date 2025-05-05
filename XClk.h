@@ -1,4 +1,6 @@
 #pragma once
 
+#include "Arduino.h"
+
 bool ClockEnable(int pin, int Hz);
-void ClockDisable();
+void ClockDisable(int pin);

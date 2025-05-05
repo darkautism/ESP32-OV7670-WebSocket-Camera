@@ -14,8 +14,8 @@
 const char *ap_ssid     = "Esp32AP";
 const char *ap_password = "thereisnospoon";
 
-const char *ssid_AP_1 = "XXXXXXXXXX";
-const char *pwd_AP_1  = "xxxxxxxxxx";
+const char *ssid_AP_1 = "darkautism";
+const char *pwd_AP_1  = "darkautism";
 
 const char *ssid_AP_2 = "XXXXXXXXX";
 const char *pwd_AP_2  = "xxxxxxxxx";
@@ -46,8 +46,8 @@ const int TFT_CS = 5;
 //DIN <- MOSI 23
 //CLK <- SCK 18
 
-#define ssid1        "YOUR_WIFI_SSID"
-#define password1    "YOUR_PASSWORD"
+#define ssid        "darkautism"
+#define password    "darkautism"
 //#define ssid2        ""
 //#define password2    ""
 
@@ -200,7 +200,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t payloa
 }
 void initWifiStation() {
 
-    WiFi.mode(WIFI_AP_STA);
+    WiFi.mode(WIFI_STA);
     WiFi.begin(ssid, password);    
     Serial.print("\nConnecting to WiFi");
     while (WiFi.status() != WL_CONNECTED) {
@@ -245,8 +245,8 @@ void initWifiAP() {
 
 void setup() {
   Serial.begin(115200);
-  initWifiMulti();
-  initWifiAP();
+  initWifiStation();
+  //initWifiAP();
   startWebSocket();
   startWebServer();
 }

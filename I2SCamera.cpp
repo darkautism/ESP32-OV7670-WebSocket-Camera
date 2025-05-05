@@ -8,6 +8,8 @@
 #include <WebSockets.h>
 #include <WebSocketsClient.h>
 #include <WebSocketsServer.h>
+#include <rom/gpio.h>
+
 
 int I2SCamera::blocksReceived = 0;
 int I2SCamera::framesReceived = 0;
@@ -64,14 +66,15 @@ void IRAM_ATTR I2SCamera::i2sInterrupt(void* arg)
     //    i2sStop();
 }
 
-void IRAM_ATTR I2SCamera::vSyncInterrupt(void* arg)
+void IRAM_ATTR I2SCamera::vSyncInterrupt()
 {
-    GPIO.status1_w1tc.val = GPIO.status1.val;
-    GPIO.status_w1tc = GPIO.status;
-    if(gpio_get_level(vSyncPin))
-    {
-      //frame done
-    }
+  attachInterrupt(digitalPinToInterrupt(27), vSyncInterrupt, FALLING);
+    // GPIO.status1_w1tc.val = GPIO.status1.val;
+    // GPIO.status_w1tc = GPIO.status;
+    // if(gpio_get_level(vSyncPin))
+    // {
+    //   //frame done
+    // }
 }
 
 void I2SCamera::i2sStop()
@@ -85,8 +88,8 @@ void I2SCamera::i2sStop()
 void I2SCamera::i2sRun()
 {
     DEBUG_PRINTLN("I2S Run");
-    while (gpio_get_level(vSyncPin) == 0);
-    while (gpio_get_level(vSyncPin) != 0);
+    while (digitalRead(vSyncPin) == LOW);
+    while (digitalRead(vSyncPin) == HIGH);
 
     esp_intr_disable(i2sInterruptHandle);
     i2sConfReset();
@@ -110,13 +113,16 @@ bool I2SCamera::initVSync(int pin)
 {
   DEBUG_PRINT("Initializing VSYNC... ");
   vSyncPin = (gpio_num_t)pin;
-  gpio_set_intr_type(vSyncPin, GPIO_INTR_POSEDGE);
-  gpio_intr_enable(vSyncPin);
-  if(gpio_isr_register(&vSyncInterrupt, (void*)"vSyncInterrupt", ESP_INTR_FLAG_INTRDISABLED | ESP_INTR_FLAG_IRAM, &vSyncInterruptHandle) != ESP_OK) 
-  {
-    DEBUG_PRINTLN("failed!");
-    return false;
-  }
+  pinMode(vSyncPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(vSyncPin), vSyncInterrupt, RISING);
+
+  // gpio_set_intr_type(vSyncPin, GPIO_INTR_POSEDGE);
+  // gpio_intr_enable(vSyncPin);
+  // if(gpio_isr_register(&vSyncInterrupt, (void*)"vSyncInterrupt", ESP_INTR_FLAG_INTRDISABLED | ESP_INTR_FLAG_IRAM, &vSyncInterruptHandle) != ESP_OK) 
+  // {
+  //   DEBUG_PRINTLN("failed!");
+  //   return false;
+  // }
   DEBUG_PRINTLN("done.");
   return true;
 }
