@@ -1,12 +1,12 @@
+// Edit by Kautism<darkautism@gmail.com>
+
 #include "OV7670.h"
 #include "XClk.h"
 #include "Log.h"
 
 OV7670::OV7670(Mode m, const int SIOD, const int SIOC, const int VSYNC, const int HREF, const int XCLK, const int PCLK, const int D0, const int D1, const int D2, const int D3, const int D4, const int D5, const int D6, const int D7)
   : i2c(SIOD, SIOC) {
-  if (!ClockEnable(XCLK, 20000000)) {
-    Serial.println("ClockEnable failed");
-  }
+  ClockEnable(XCLK, 20000000);
   DEBUG_PRINT("Waiting for VSYNC...");
   pinMode(VSYNC, INPUT);
   while (!digitalRead(VSYNC))
@@ -27,7 +27,7 @@ OV7670::OV7670(Mode m, const int SIOD, const int SIOC, const int VSYNC, const in
       break;
 
     case QVGA_RGB565:
-      blockSlice = 120;
+      blockSlice = 80;
       xres = 320;
       yres = 240;
       QVGARGB565();

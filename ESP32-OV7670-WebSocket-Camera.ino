@@ -1,261 +1,215 @@
+// Author : Mudassar Tamboli, Kautism<darkautism@gmail.com>
 
-//Author : Mudassar Tamboli
+#include <Arduino.h>
+#include <JPEGENC.h>
+#include <WebServer.h>
+#include <WiFi.h>
+#include <WiFiClient.h>
 
 #include "OV7670.h"
 
-#include <WebSockets.h>
-#include <WebSocketsClient.h>
-#include <WebSocketsServer.h>
-#include <WiFi.h>
-#include <WiFiMulti.h>
-#include <WiFiClient.h>
-#include "canvas_htm.h"
+#define ssid F("darkautism")
+#define password F("darkautism")
 
-const char *ap_ssid     = "Esp32AP";
-const char *ap_password = "thereisnospoon";
+#define SIOD 21
+#define SIOC 22
+#define VSYNC 34
+#define HREF 35
+#define XCLK 32
+#define PCLK 33
+#define D0 27
+#define D1 17
+#define D2 16
+#define D3 15
+#define D4 14
+#define D5 13
+#define D6 12
+#define D7 4
 
-const char *ssid_AP_1 = "darkautism";
-const char *pwd_AP_1  = "darkautism";
 
-const char *ssid_AP_2 = "XXXXXXXXX";
-const char *pwd_AP_2  = "xxxxxxxxx";
+#define NonUsedBuffer() (workingbuf == 1) ? bufferA : bufferB
+#define FillingBuffer() (workingbuf == 0) ? bufferA : bufferB
+#define JPEG_BUF_SIZE 14000
 
-const char *ssid_AP_3 = "XXXXXXXXX";
-const char *pwd_AP_3  = "xxxxxxxxx";
-
-const int SIOD = 21; //SDA
-const int SIOC = 22; //SCL
-
-const int VSYNC = 34;
-const int HREF = 35;
-
-const int XCLK = 32;
-const int PCLK = 33;
-
-const int D0 = 27;
-const int D1 = 17;
-const int D2 = 16;
-const int D3 = 15;
-const int D4 = 14;
-const int D5 = 13;
-const int D6 = 12;
-const int D7 = 4;
-
-const int TFT_DC = 2;
-const int TFT_CS = 5;
-//DIN <- MOSI 23
-//CLK <- SCK 18
-
-#define ssid        "darkautism"
-#define password    "darkautism"
-//#define ssid2        ""
-//#define password2    ""
+uint8_t jpgBuf[JPEG_BUF_SIZE];
 
 OV7670 *camera;
 
-WiFiMulti wifiMulti;
-WiFiServer server(80);
+WebServer server(80);
 
-unsigned char pix = 0;
+const char HEADER[] =
+  "HTTP/1.1 200 OK\r\n"
+  "Access-Control-Allow-Origin: *\r\n"
+  "Content-Type: multipart/x-mixed-replace; "
+  "boundary=darkautism\r\n";
+const char BOUNDARY[] = "\r\n--darkautism\r\n";
+const char CTNTTYPE[] = "Content-Type: image/jpeg\r\nContent-Length: ";
+const uint16_t hdrLen = strlen(HEADER);
+const uint16_t bdrLen = strlen(BOUNDARY);
+const uint16_t cntLen = strlen(CTNTTYPE);
 
-//unsigned char bmpHeader[BMP::headerSize];
+enum ScanType : uint8_t {
+  Infinite,
+  Once,
+  LastFrame,
+};
 
-unsigned char start_flag = 0xAA;
-unsigned char end_flag = 0xFF;
-unsigned char ip_flag = 0x11;
+// Sync stuff
+uint8_t *bufferA = nullptr;
+uint8_t *bufferB = nullptr;
+uint8_t workingbuf = 0;
+struct ScanRequest {
+  uint16_t startRow;
+  uint16_t endRow;
+  uint8_t *targetBuffer;
+  ScanType type;
+};
 
-WebSocketsServer webSocket(81);    // create a websocket server on port 81
+QueueHandle_t scanRequestQueue = xQueueCreate(1, sizeof(ScanRequest));
+SemaphoreHandle_t bufferReadySemaphore = xSemaphoreCreateBinary();
 
-void startWebSocket() { // Start a WebSocket server
-  webSocket.begin();                          // start the websocket server
-  webSocket.onEvent(webSocketEvent);          // if there's an incomming websocket message, go to function 'webSocketEvent'
-  Serial.println("WebSocket server started.");
-}
-
-void startWebServer()
-{
-   server.begin();
-   Serial.println("Http web server started.");
-}
-void serve() {
-  WiFiClient client = server.available();
-  if (client) 
-  {
-    //Serial.println("New Client.");
-    String currentLine = "";
-    while (client.connected()) 
-    {
-      if (client.available()) 
-      {
-        char c = client.read();
-        //Serial.write(c);
-        if (c == '\n') 
-        {
-          if (currentLine.length() == 0) 
-          {
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
-            client.print(canvas_htm);
-            client.println();
-            break;
-          } 
-          else 
-          {
-            currentLine = "";
+int encodeJpeg(uint8_t *jpgBuf, size_t bufsize) {
+  uint8_t rc = JPEGE_SUCCESS;
+  JPEGENC jpg;
+  rc = jpg.open(jpgBuf, bufsize);
+  if (rc == JPEGE_SUCCESS) {
+    JPEGENCODE jpe;
+    rc = jpg.encodeBegin(&jpe, camera->xres, camera->yres, JPEGE_PIXEL_RGB565,
+                         JPEGE_SUBSAMPLE_420, JPEGE_Q_MED);
+    if (rc == JPEGE_SUCCESS) {
+      uint8_t blk_count =
+        (camera->yres + I2SCamera::blockSlice - 1) / I2SCamera::blockSlice;
+      if (blk_count > 1) {
+        for (uint8_t i = 0; i < blk_count; i++) {
+          uint16_t startRow = 0;
+          uint16_t endRow = 0;
+          ScanType type = (i + 1 == blk_count) ? LastFrame : Once;
+          if (type == LastFrame) {
+            startRow = 0;
+          } else {
+            startRow = (i + 1) * I2SCamera::blockSlice;
           }
-        } 
-        else if (c != '\r') 
-        {
-          currentLine += c;
+          endRow = min(startRow + I2SCamera::blockSlice, camera->yres);
+          uint8_t *targetBuffer = FillingBuffer();
+          uint8_t *sendBuffer = NonUsedBuffer();
+          workingbuf ^= 1;
+          ScanRequest req = { startRow, endRow, sendBuffer, (i + 1 == blk_count) ? LastFrame : Once };
+          xQueueSend(scanRequestQueue, &req, portMAX_DELAY);
+
+          xSemaphoreTake(bufferReadySemaphore, portMAX_DELAY);
+          // 之前的startRow是給送出用的，我們用的是這個
+          startRow = startRow = i * I2SCamera::blockSlice;
+          endRow = min(startRow + I2SCamera::blockSlice, camera->yres);
+
+          for (uint16_t my = startRow; my < endRow && rc == JPEGE_SUCCESS; my += 16) {
+            for (uint16_t mx = 0; mx < camera->xres && rc == JPEGE_SUCCESS; mx += 16) {
+              uint16_t localRow = my - startRow;
+              uint8_t *mcuStart =
+                targetBuffer + (localRow * camera->xres + mx) * 2;
+              rc = jpg.addMCU(&jpe, mcuStart, camera->xres * 2);
+            }
+          }
+          if (rc != JPEGE_SUCCESS) {
+            Serial.print(F("jpg failed err:"));
+            Serial.println(rc);
+            break;
+          }
         }
-        
+      } else {
+        uint8_t *targetBuffer = FillingBuffer();
+        uint8_t *sendBuffer = NonUsedBuffer();
+        workingbuf ^= 1;
+        ScanRequest req = { 0, I2SCamera::blockSlice, sendBuffer, LastFrame };
+        xQueueSend(scanRequestQueue, &req, portMAX_DELAY);
+        xSemaphoreTake(bufferReadySemaphore, portMAX_DELAY);
+        rc = jpg.addFrame(&jpe, targetBuffer, camera->xres * 2);
+      }
+
+      if (rc == JPEGE_SUCCESS) {
+        return jpg.close();
       }
     }
-    // close the connection:
-    client.stop();
-
-  }  
+  }
+  return -1;  // error
 }
 
-void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t payloadlength) { // When a WebSocket message is received
- 
-  int blk_count = 0;
+void handle_jpg_stream(void) {
+  char buf[32];
+  WiFiClient client = server.client();
+  client.write(HEADER, hdrLen);
+  client.write(BOUNDARY, bdrLen);
+  while (true) {
+    if (!client.connected()) break;
+    uint16_t jpgSize = encodeJpeg(jpgBuf, JPEG_BUF_SIZE);
 
-  char canvas_VGA[] = "canvas-VGA";
-  char canvas_Q_VGA[] = "canvas-Q-VGA";
-  char canvas_QQ_VGA[] = "canvas-QQ-VGA";
-  char canvas_QQQ_VGA[] = "canvas-QQQ-VGA";
-  char ipaddr[26] ;
-  IPAddress localip;
-  
-  switch (type) {
-    case WStype_DISCONNECTED:             // if the websocket is disconnected
-      Serial.printf("[%u] Disconnected!\n", num);
-      break;
-    case WStype_CONNECTED: {              // if a new websocket connection is established
-        IPAddress ip = webSocket.remoteIP(num);
-        Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
-           webSocket.sendBIN(0, &ip_flag, 1);
-           localip = WiFi.localIP();
-           sprintf(ipaddr, "%d.%d.%d.%d", localip[0], localip[1], localip[2], localip[3]);
-           webSocket.sendTXT(0, (const char *)ipaddr);
-           
-      }
-      break;
-    case WStype_TEXT:                     // if new text data is received
-      if (payloadlength == sizeof(canvas_QQQ_VGA)-1) {
-        if (memcmp(canvas_QQQ_VGA, payload, payloadlength) == 0) {
-              Serial.printf("canvas_QQQ_VGA");
-              webSocket.sendBIN(0, &end_flag, 1);
-              camera = new OV7670(OV7670::Mode::QQQVGA_RGB565, SIOD, SIOC, VSYNC, HREF, XCLK, PCLK, D0, D1, D2, D3, D4, D5, D6, D7);
-        }
-      } else if (payloadlength == sizeof(canvas_QQ_VGA)-1) {
-        if (memcmp(canvas_QQ_VGA, payload, payloadlength) == 0) {
-              Serial.printf("canvas_QQ_VGA");
-              webSocket.sendBIN(0, &end_flag, 1);
-              camera = new OV7670(OV7670::Mode::QQVGA_RGB565, SIOD, SIOC, VSYNC, HREF, XCLK, PCLK, D0, D1, D2, D3, D4, D5, D6, D7);
-        }
-      } else if (payloadlength == sizeof(canvas_Q_VGA)-1) {
-        if (memcmp(canvas_Q_VGA, payload, payloadlength) == 0) {
-              Serial.printf("canvas_Q_VGA");
-              webSocket.sendBIN(0, &end_flag, 1);
-              camera = new OV7670(OV7670::Mode::QVGA_RGB565, SIOD, SIOC, VSYNC, HREF, XCLK, PCLK, D0, D1, D2, D3, D4, D5, D6, D7);
-        }
-      } else if (payloadlength == sizeof(canvas_VGA)-1) {
-        if (memcmp(canvas_VGA, payload, payloadlength) == 0) {
-              Serial.printf("canvas_VGA");
-              webSocket.sendBIN(0, &end_flag, 1);
-              camera = new OV7670(OV7670::Mode::VGA_RGB565, SIOD, SIOC, VSYNC, HREF, XCLK, PCLK, D0, D1, D2, D3, D4, D5, D6, D7);
-        }
-      } 
-
-      
-      blk_count = camera->yres/I2SCamera::blockSlice;//30, 60, 120
-      for (int i=0; i<blk_count; i++) {
-
-          if (i == 0) {
-              camera->startBlock = 1;
-              camera->endBlock = I2SCamera::blockSlice;
-              webSocket.sendBIN(0, &start_flag, 1);
-          }
-
-          if (i == blk_count-1) {
-              webSocket.sendBIN(0, &end_flag, 1);
-          }
-        
-          camera->oneFrame();
-          webSocket.sendBIN(0, camera->frame, camera->xres * I2SCamera::blockSlice * 2);
-          camera->startBlock += I2SCamera::blockSlice;
-          camera->endBlock   += I2SCamera::blockSlice;
-      }
-      
-      break;
-    case WStype_ERROR:                     // if new text data is received
-      Serial.printf("Error \n");
-    default:
-      Serial.printf("WStype %x not handled \n", type);
+    if (jpgSize > 0) {
+      client.write(CTNTTYPE, cntLen);
+      sprintf(buf, "%d\r\n\r\n", jpgSize);
+      client.write(buf, strlen(buf));
+      client.write((char *)jpgBuf, jpgSize);
+      client.write(BOUNDARY, bdrLen);
+    } else {
+      break;  // handle error
+    }
 
   }
 }
-void initWifiStation() {
 
-    WiFi.mode(WIFI_STA);
-    WiFi.begin(ssid, password);    
-    Serial.print("\nConnecting to WiFi");
-    while (WiFi.status() != WL_CONNECTED) {
-       delay(5000);        
-       Serial.print(".");
+
+void cameraTask(void *pvParameters) {
+  ScanRequest request;
+  uint8_t ret = 0;
+  while (true) {
+    vTaskDelay(1);
+    ret = xQueueReceive(scanRequestQueue, &request, (request.type == Infinite) ? 0 : pdMS_TO_TICKS(10));
+    if (ret == pdPASS || request.type == Infinite) {
+      if (request.type != Infinite)
+        xSemaphoreGive(bufferReadySemaphore);
+      if (request.type == LastFrame)
+        request.type = Infinite;
+
+      camera->startBlock = request.startRow + 1;
+      camera->endBlock = request.endRow;
+      camera->oneFrame(request.targetBuffer);
     }
-    Serial.println(String("\nConnected to the WiFi network (") + ssid + ")" );
-
-    Serial.print("\nStation IP address: ");
-    Serial.println(WiFi.localIP()); 
-
+  }
 }
 
-void initWifiMulti()
-{
-
-    wifiMulti.addAP(ssid_AP_1, pwd_AP_1);
-    wifiMulti.addAP(ssid_AP_2, pwd_AP_2);
-    wifiMulti.addAP(ssid_AP_3, pwd_AP_3);
-
-    Serial.println("Connecting Wifi...");
-    while(wifiMulti.run() != WL_CONNECTED) {
-       delay(5000);        
-       Serial.print(".");
-    }
-    
-    Serial.print("\n");
-    Serial.print("WiFi connected : ");
-    Serial.print("IP address : ");
-    Serial.println(WiFi.localIP());
-}
-
-void initWifiAP() {
-
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP(ap_ssid, ap_password);
-    IPAddress myIP = WiFi.softAPIP();
-    Serial.print("AP IP address: ");
-    Serial.println(myIP);
-}
-
+//uint8_t FakeBuffer[320*128*2];
 
 void setup() {
   Serial.begin(115200);
-  initWifiStation();
-  //initWifiAP();
-  startWebSocket();
-  startWebServer();
+  camera = new OV7670(OV7670::Mode::QVGA_RGB565, SIOD, SIOC, VSYNC, HREF, XCLK,
+                      PCLK, D0, D1, D2, D3, D4, D5, D6, D7);
+
+  const int bufferSize = camera->xres * I2SCamera::blockSlice * 2;
+  bufferA = (uint8_t *)malloc(bufferSize);
+  bufferB = (uint8_t *)malloc(bufferSize);
+  if (bufferA == nullptr || bufferB == nullptr) {
+    Serial.println(F("Failed to allocate buffers"));
+    while (1)
+      ;
+  }
+  xTaskCreatePinnedToCore(cameraTask, "CameraTask", 1024, NULL, 1, NULL, 0);
+  // 初始無限掃描
+  ScanRequest initReq = { 0, I2SCamera::blockSlice, bufferA, Infinite };
+  xQueueSend(scanRequestQueue, &initReq, portMAX_DELAY);
+  IPAddress ip;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(F("."));
+  }
+  ip = WiFi.localIP();
+  Serial.println(F("Connected"));
+  Serial.print(F("Stream Link: http://"));
+  Serial.print(ip);
+  Serial.println(F("/stream"));
+  server.on(F("/stream"), HTTP_GET, handle_jpg_stream);
+  server.begin();
 }
 
-void loop()
-{
-  webSocket.loop();
-  serve();
+void loop() {
+  server.handleClient();
 }
-
-
-

@@ -1,3 +1,5 @@
+// Edit by Kautism<darkautism@gmail.com>
+
 #pragma once
 
 class DMABuffer
@@ -35,4 +37,3 @@ class DMABuffer
       delete(buffer);
   }
 };
-
