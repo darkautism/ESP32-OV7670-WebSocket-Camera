@@ -32,7 +32,7 @@ Due to memory limitations, VGA testing is not possible in my env.
 | D3         | 15       |
 | D4         | 14       |
 | D5         | 13       |
-| D6         | 12       |
+| D6         | 26       |
 | D7         | 4        |
 | RESET      | 3.3V     |
 | PWDN       | GND      |
