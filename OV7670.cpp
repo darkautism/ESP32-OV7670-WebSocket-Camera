@@ -19,7 +19,7 @@ OV7670::OV7670(Mode m, const int SIOD, const int SIOC, const int VSYNC, const in
   switch (mode) {
 
     case VGA_RGB565:
-      blockSlice = 60;
+      blockSlice = 64;
       xres = 640;
       yres = 480;
       VGARGB565();
