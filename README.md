@@ -1,4 +1,4 @@
-# ESP32-OV7670-MJPEG Camera
+# ESP32-OV7670-Mjpeg-Camera
 
 This project aims to provide an affordable MJPEG server for Klipper timelapse recording. I happened to have an OV7670 camera without FIFO on hand.
 
