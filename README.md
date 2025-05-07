@@ -20,8 +20,8 @@ Due to memory limitations, VGA testing is not possible in my env.
 
 | Camera Pin | ESP32 Pin |
 |------------|----------|
-| SIOD       | 21       |
-| SIOC       | 22       |
+| SIOD(SDA)  | 21       |
+| SIOC(SCL)  | 22       |
 | VSYNC      | 34       |
 | HREF       | 35       |
 | XCLK       | 32       |
