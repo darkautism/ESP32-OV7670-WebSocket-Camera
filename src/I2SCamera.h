@@ -7,14 +7,14 @@
 #include "Arduino.h"
 #pragma once
 
-#include "rom/lldesc.h"
-#include "driver/gpio.h"
-#include "driver/periph_ctrl.h"
-#include "soc/gpio_sig_map.h"
-#include "soc/i2s_reg.h"
-#include "soc/i2s_struct.h"
-#include "soc/io_mux_reg.h"
-#include "soc/soc.h"
+#include <rom/lldesc.h>
+#include <driver/gpio.h>
+#include <esp_private/periph_ctrl.h>
+#include <soc/gpio_sig_map.h>
+#include <soc/i2s_reg.h>
+#include <soc/i2s_struct.h>
+#include <soc/io_mux_reg.h>
+#include <soc/soc.h>
 #include "DMABuffer.h"
 #include "XClk.h"
 
